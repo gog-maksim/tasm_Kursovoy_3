@@ -1,0 +1,206 @@
+
+program RotatingCone;
+uses
+  Crt, Dos;
+
+const
+  VESA_MODE = $103;
+  SCREEN_WIDTH = 800;
+  SCREEN_HEIGHT = 600;
+  POINTS_COUNT = 36;
+
+type
+  Point3D = record
+    x, y, z: real;
+  end;
+  Point2D = record
+    x, y: integer;
+  end;
+
+var
+  ConePoints: array[1..POINTS_COUNT + 1] of Point3D;
+  ScreenPoints: array[1..POINTS_COUNT + 1] of Point2D;
+  Angle: real;
+
+{ Set VESA video mode }
+procedure SetVideoMode(mode: word);
+begin
+  asm
+    mov ax, 4F02h
+    mov bx, mode
+    int 10h
+  end;
+end;
+
+{ Draw pixel in 800x600 mode }
+procedure PutPixel(x, y: integer; color: byte);
+begin
+  asm
+    mov ah, 0Ch
+    mov al, color
+    mov bh, 0
+    mov cx, x
+    mov dx, y
+    int 10h
+  end;
+end;
+
+{ МЕДЛЕННАЯ но РАБОТАЮЩАЯ очистка экрана }
+procedure ClearScreen;
+var
+  x, y: integer;
+begin
+  { Очищаем экран черными пикселями через BIOS }
+  for x := 0 to 799 do
+  begin
+    for y := 0 to 599 do
+    begin
+      PutPixel(x, y, 0);
+    end;
+  end;
+end;
+
+{ Draw line between two points }
+procedure DrawLine(x1, y1, x2, y2: integer; color: byte);
+var
+  x, y, dx, dy, sx, sy, err, e2: integer;
+begin
+  dx := abs(x2 - x1);
+  dy := abs(y2 - y1);
+  
+  if x1 < x2 then sx := 1 else sx := -1;
+  if y1 < y2 then sy := 1 else sy := -1;
+  
+  err := dx - dy;
+  x := x1;
+  y := y1;
+  
+  while true do
+  begin
+    PutPixel(x, y, color);
+    if (x = x2) and (y = y2) then break;
+    
+    e2 := 2 * err;
+    if e2 > -dy then
+    begin
+      err := err - dy;
+      x := x + sx;
+    end;
+    if e2 < dx then
+    begin
+      err := err + dx;
+      y := y + sy;
+    end;
+  end;
+end;
+
+{ Initialize cone points }
+procedure InitCone;
+var
+  i: integer;
+  a: real;
+begin
+  { Cone tip }
+  ConePoints[1].x := 150;
+  ConePoints[1].y := 0;
+  ConePoints[1].z := 0;
+
+  { Cone base points }
+  for i := 2 to POINTS_COUNT + 1 do
+  begin
+    a := 2 * Pi * (i - 2) / POINTS_COUNT;
+    ConePoints[i].x := -80;
+    ConePoints[i].y := 100 * cos(a);
+    ConePoints[i].z := 100 * sin(a);
+  end;
+end;
+
+{ Rotate point around axis at 45 degrees to Z }
+procedure RotatePoint(var p: Point3D; angle: real);
+var
+  tempX, tempY, tempZ: real;
+  cosA, sinA, cos45, sin45: real;
+begin
+  cosA := cos(angle);
+  sinA := sin(angle);
+  cos45 := 0.7071;
+  sin45 := 0.7071;
+  
+  tempY := p.y * cos45 - p.z * sin45;
+  tempZ := p.y * sin45 + p.z * cos45;
+  
+  tempX := p.x * cosA - tempZ * sinA;
+  tempZ := p.x * sinA + tempZ * cosA;
+  
+  p.x := tempX;
+  p.y := tempY * cos45 + tempZ * sin45;
+  p.z := -tempY * sin45 + tempZ * cos45;
+end;
+
+{ Project 3D to 2D }
+procedure ProjectPoint(p3D: Point3D; var x2D, y2D: integer);
+var
+  scale: real;
+begin
+  scale := 400 / (400 + p3D.z * 0.5);
+  x2D := 400 + round(p3D.x * scale);
+  y2D := 300 + round(p3D.y * scale);
+end;
+
+{ Draw full cone with COLORED lines }
+procedure DrawCone;
+var
+  i: integer;
+  lineColor: byte;
+begin
+  { Project all points to 2D }
+  for i := 1 to POINTS_COUNT + 1 do
+  begin
+    RotatePoint(ConePoints[i], Angle);
+    ProjectPoint(ConePoints[i], ScreenPoints[i].x, ScreenPoints[i].y);
+  end;
+
+  { Draw lines from tip to base - РАЗНЫЕ ЦВЕТА! }
+  for i := 2 to POINTS_COUNT + 1 do
+  begin
+    lineColor := (i mod 14) + 1;
+    DrawLine(ScreenPoints[1].x, ScreenPoints[1].y, 
+      ScreenPoints[i].x, ScreenPoints[i].y, lineColor);
+  end;
+
+  { Draw base circle - БЕЛЫЙ }
+  for i := 2 to POINTS_COUNT do
+  begin
+    DrawLine(ScreenPoints[i].x, ScreenPoints[i].y, 
+      ScreenPoints[i + 1].x, ScreenPoints[i + 1].y, 15);
+  end;
+  
+  { Close the base circle }
+  DrawLine(ScreenPoints[POINTS_COUNT + 1].x, 
+    ScreenPoints[POINTS_COUNT + 1].y, 
+    ScreenPoints[2].x, ScreenPoints[2].y, 15);
+end;
+
+{ Main program }
+begin
+  InitCone;
+  Angle := 0;
+  
+  SetVideoMode(VESA_MODE);
+  Delay(500);
+  
+  repeat
+    ClearScreen;  { ТЕПЕРЬ РАБОТАЕТ! }
+    DrawCone;
+    
+    Angle := Angle + Pi / 48;
+    if Angle > 2 * Pi then
+      Angle := Angle - 2 * Pi;
+    
+    Delay(300);
+    
+  until KeyPressed;
+  
+  SetVideoMode(3);
+  writeln('Color Cone - Clean rotation!');
+end.
